@@ -728,5 +728,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 </script>
+    <script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(registration => {
+        console.log('帝王谷离线缓存已启用:', registration.scope);
+      })
+      .catch(error => {
+        console.error('帝王谷离线缓存注册失败:', error);
+      });
+  });
+}
+</script>
 </body>
 </html>
