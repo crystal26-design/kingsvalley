@@ -1,5 +1,5 @@
 // sw.js - 离线缓存核心脚本（v3：预生成 mp3 讲解版）
-const CACHE_NAME = 'abusimbel-offline-v3';
+const CACHE_NAME = 'kingsvalley-offline-v1';
 
 // 必须预缓存的页面外壳（install 阶段任一失败会导致整个 SW 安装失败，只放最核心的两项）
 const SHELL_TO_CACHE = [
@@ -99,13 +99,16 @@ self.addEventListener('install', event => {
   );
 });
 
-// 2. 激活阶段：清理旧版本缓存
+// 2. 激活阶段：只清理帝王谷自己的旧版本缓存
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => {
       return Promise.all(
         keys.map(key => {
-          if (key !== CACHE_NAME) {
+          if (
+            key.startsWith('kingsvalley-offline-') &&
+            key !== CACHE_NAME
+          ) {
             return caches.delete(key);
           }
         })
@@ -116,18 +119,83 @@ self.addEventListener('activate', event => {
 
 // 3. 拦截请求：缓存优先，离线可用
 self.addEventListener('fetch', event => {
-  // AI 对话接口不拦截（必须联网）
-  if (event.request.url.includes('/api/chat')) {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  // AI 对话接口不拦截
+  if (url.pathname.startsWith('/api/')) {
     return;
   }
+
   // 非 GET 请求不拦截
-  if (event.request.method !== 'GET') {
+  if (request.method !== 'GET') {
     return;
   }
-  event.respondWith(
-    caches.match(event.request).then(cachedResponse => {
-      // 优先使用本地缓存，没有缓存再走网络下载
-      return cachedResponse || fetch(event.request);
-    })
-  );
+
+  // 不处理其他域名的请求
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+
+    // 先按普通 GET 请求查找缓存，兼容音频 Range 请求
+    const cachedResponse = await cache.match(url.href);
+
+    if (cachedResponse) {
+      const range = request.headers.get('Range');
+
+      // 普通请求直接返回缓存
+      if (!range) {
+        return cachedResponse;
+      }
+
+      // 处理音频分段请求
+      const buffer = await cachedResponse.arrayBuffer();
+      const size = buffer.byteLength;
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+
+      if (!match) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${size}` }
+        });
+      }
+
+      let start = match[1] ? Number(match[1]) : 0;
+      let end = match[2] ? Number(match[2]) : size - 1;
+
+      if (!match[1] && match[2]) {
+        const suffixLength = Number(match[2]);
+        start = Math.max(size - suffixLength, 0);
+        end = size - 1;
+      }
+
+      if (start >= size || start > end) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${size}` }
+        });
+      }
+
+      end = Math.min(end, size - 1);
+
+      const headers = new Headers(cachedResponse.headers);
+      headers.set('Accept-Ranges', 'bytes');
+      headers.set('Content-Range', `bytes ${start}-${end}/${size}`);
+      headers.set('Content-Length', String(end - start + 1));
+
+      return new Response(
+        buffer.slice(start, end + 1),
+        {
+          status: 206,
+          headers
+        }
+      );
+    }
+
+    // 没有缓存时请求网络
+    return fetch(request);
+  })());
 });
