@@ -4,7 +4,8 @@ const CACHE_NAME = 'kingsvalley-offline-v1';
 // 必须预缓存的页面外壳（install 阶段任一失败会导致整个 SW 安装失败，只放最核心的两项）
 const SHELL_TO_CACHE = [
   '/',
-  '/index.html'
+  '/index.html',
+  './data.js'
 ];
 
 // 全部展品图 / 展区图（逐张尝试缓存，单张 404 不会拖垮安装）
